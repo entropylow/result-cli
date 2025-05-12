@@ -1,5 +1,24 @@
 from lxml import html
-import requests, bs4
+import sys, requests, bs4
+
+# variables
+variables = {
+    'session_code'  : '',
+    'course_type'   : '',
+    'course_number' : '',
+    'result_type'   : '',
+    'roll_number'   : '',
+    'semester_code' : '',
+}
+
+# fill the variables dictionary using command line arguments
+n = 1
+for key in variables.keys():
+    if n < len(sys.argv):
+        variables[key] = sys.argv[n].strip()
+        n += 1
+    else:
+        break
 
 # getting the html data from the website
 url = 'https://sgbau.ucanapply.com/result-details'
@@ -31,13 +50,13 @@ headers = {
 
 data = {
     '_token': token,
-    'session': 'SE20',
-    'COURSETYPE': 'UG',
-    'COURSECD': 'C000037',
-    'RESULTTYPE': 'R',
+    'session': variables['session_code'],    # 'SE20'
+    'COURSETYPE': variables['course_type'],  # 'UG'
+    'COURSECD': variables['course_number'],  # 'C000037'
+    'RESULTTYPE': variables['result_type'],  # 'R'
     'p1': '',
-    'ROLLNO': '23BG310401',
-    'SEMCODE': 'SM04',
+    'ROLLNO': variables['roll_number'],      # '23BG310401'
+    'SEMCODE': variables['semester_code'],   # 'SM04'
     'all': '',
 }
 
@@ -53,23 +72,19 @@ result_soup = bs4.BeautifulSoup(result_response.content, 'html.parser')
 #     file.write(chunk)
 # file.close()
 
-
 # extracting name and sgpa
 result_html = html.fromstring(result_response.content)
 
 sgpa_list = result_html.xpath("//td[contains(text(), 'SGPA')]/following-sibling::td")
-
 if sgpa_list:
-    sgpa_unfilterd = sgpa_list[0].text_content().strip()
+    sgpa_unfiltered = sgpa_list[0].text_content().strip()
 else:
     sgpa = 'FAIL'
-
-sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfilterd))
-
+sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfiltered))
 
 name_list = result_html.xpath("//td[contains(text(), 'Name')]/following-sibling::td[2]")
-name_unfilterd = name_list[0].text_content().strip()
-name = ' '.join(name_unfilterd.split()[:3])
+name_unfiltered = name_list[0].text_content().strip()
+name = ' '.join(name_unfiltered.split()[:3])
 
 # print the collected data
 print(f'{name} : {sgpa}')
