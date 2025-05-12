@@ -1,16 +1,16 @@
+from lxml import html
 import requests, bs4
 
-# Getting the html data from the website
+# getting the html data from the website
 url = 'https://sgbau.ucanapply.com/result-details'
 session = requests.Session()
-page = session.get(url)
+input_response = session.get(url)
 
-# Extracting token from the page
-soup = bs4.BeautifulSoup(page.content, 'html.parser')
-token = soup.find('input', {'name': '_token'}).get('value')
+# extracting token from the page
+input_soup = bs4.BeautifulSoup(input_response.content, 'html.parser')
+token = input_soup.find('input', {'name': '_token'}).get('value')
 
-# Implementing headers and data dictionary
-
+# implementing headers and data dictionary
 headers = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:138.0) Gecko/20100101 Firefox/138.0',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -41,4 +41,35 @@ data = {
     'all': '',
 }
 
-print(token)
+# submitting the data
+post_url = 'https://sgbau.ucanapply.com/get-result-details'
+result_response = session.post(post_url, headers=headers, data=data)
+
+result_soup = bs4.BeautifulSoup(result_response.content, 'html.parser')
+
+# save the file on hard drive
+# file = open('result_page.html', 'wb')
+# for chunk in result_page.iter_content(10000000):
+#     file.write(chunk)
+# file.close()
+
+
+# extracting name and sgpa
+result_html = html.fromstring(result_response.content)
+
+sgpa_list = result_html.xpath("//td[contains(text(), 'SGPA')]/following-sibling::td")
+
+if sgpa_list:
+    sgpa_unfilterd = sgpa_list[0].text_content().strip()
+else:
+    sgpa = 'FAIL'
+
+sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfilterd))
+
+
+name_list = result_html.xpath("//td[contains(text(), 'Name')]/following-sibling::td[2]")
+name_unfilterd = name_list[0].text_content().strip()
+name = ' '.join(name_unfilterd.split()[:3])
+
+# print the collected data
+print(f'{name} : {sgpa}')
