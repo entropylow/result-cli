@@ -1,24 +1,27 @@
 from lxml import html
-import sys, requests, bs4
+import argparse, requests, bs4
 
-# variables
-variables = {
-    'session_code'  : '',
-    'course_type'   : '',
-    'course_number' : '',
-    'result_type'   : '',
-    'roll_number'   : '',
-    'semester_code' : '',
+# taking input from command line args 
+add_args = {
+    'session'  : {'required' : True, 'help' : '17:W22, 18:S23, ... , 21:W24'},
+    'course'   : {'required' : True, 'help' : 'UG/PG/PHD'},
+    'code'     : {'required' : True, 'help' : 'CSE:32/ENTC:37/IT:39/MECH:41/ELPO:43/firstYear:48'},
+    'type'     : {'required' : True, 'help' : 'R/B/RV/EV'},
+    'roll'     : {'required' : True, 'help' : 'roll number'},
+    'semester' : {'required' : True, 'help' : '1, 2, 3 ...'},
 }
 
-# fill the variables dictionary using command line arguments
-n = 1
-for key in variables.keys():
-    if n < len(sys.argv):
-        variables[key] = sys.argv[n].strip()
-        n += 1
-    else:
-        break
+parser = argparse.ArgumentParser()
+
+# the simple way (without loop)
+# parser.add_argument('--session', required=True, help='17:W22, 18:S23, ... , 21:W24')
+# parser.add_argument('--course', required=True, help='UG/PG/PHD')
+# ... 
+
+for arg, values in add_args.items():
+    parser.add_argument(f'--{arg}', **values)
+    
+args = parser.parse_args()
 
 # getting the html data from the website
 url = 'https://sgbau.ucanapply.com/result-details'
@@ -50,13 +53,13 @@ headers = {
 
 data = {
     '_token': token,
-    'session': variables['session_code'],    # 'SE20'
-    'COURSETYPE': variables['course_type'],  # 'UG'
-    'COURSECD': variables['course_number'],  # 'C000037'
-    'RESULTTYPE': variables['result_type'],  # 'R'
+    'session': 'SE' + args.session,    # '20'
+    'COURSETYPE': args.course,         # 'UG'
+    'COURSECD': 'C0000' + args.code,   # '37'
+    'RESULTTYPE': args.type,           # 'R'
     'p1': '',
-    'ROLLNO': variables['roll_number'],      # '23BG310401'
-    'SEMCODE': variables['semester_code'],   # 'SM04'
+    'ROLLNO': args.roll,               # '23BG310401'
+    'SEMCODE': 'SM0' + args.semester,  # '4'
     'all': '',
 }
 
@@ -76,9 +79,9 @@ result_html = html.fromstring(result_response.content)
 sgpa_list = result_html.xpath("//td[contains(text(), 'SGPA')]/following-sibling::td")
 if sgpa_list:
     sgpa_unfiltered = sgpa_list[0].text_content().strip()
+    sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfiltered))
 else:
     sgpa = 'FAIL'
-sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfiltered))
 
 name_list = result_html.xpath("//td[contains(text(), 'Name')]/following-sibling::td[2]")
 name_unfiltered = name_list[0].text_content().strip()
