@@ -64,11 +64,9 @@ data = {
 post_url = 'https://sgbau.ucanapply.com/get-result-details'
 result_response = session.post(post_url, headers=headers, data=data)
 
-result_soup = bs4.BeautifulSoup(result_response.content, 'html.parser')
-
 # save the file on hard drive
 # file = open('result_page.html', 'wb')
-# for chunk in result_page.iter_content(10000000):
+# for chunk in result_response.iter_content(10000000):
 #     file.write(chunk)
 # file.close()
 
