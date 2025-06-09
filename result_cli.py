@@ -1,8 +1,9 @@
 from lxml import html
-import argparse, requests, bs4
+import argparse, bs4
+import asyncio, aiohttp
 
-def get_input():
-    """take the input from command line arguments"""
+def read_command_line_input():
+    """takes input from command line arguments"""
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--session', required=True, help='17:W22, 18:S23, ... , 21:W24')
@@ -16,24 +17,37 @@ def get_input():
     args = parser.parse_args()
     return args
 
-def create_session():
-    """create a session object that will preserve the cookies and the TCP connection"""
-    session = requests.Session()
-    return session
-
-def get_response(url, session):
-    """get the html data for the current session"""
-    input_response = session.get(url)
-    return input_response
-    
-def extract_token(input_response):
-    """extract the token from the html data"""
-    input_soup = bs4.BeautifulSoup(input_response.content, 'html.parser')
-    token = input_soup.find('input', {'name': '_token'}).get('value')
+def extract_token(base_response_text):
+    """extracts token from the html data"""
+    base_soup = bs4.BeautifulSoup(base_response_text, 'html.parser')
+    token = base_soup.find('input', {'name': '_token'}).get('value')
     return token
 
-def fill_missing_fields(args, token):
-    """completes the dictionaries"""
+def extract_name_and_spga(post_response_text):
+    """extracts name and sgpa from the resultant html"""
+    post_html = html.fromstring(post_response_text)
+    
+    name_list = post_html.xpath("//td[contains(text(), 'Name')]/following-sibling::td[2]")
+    if name_list:
+        name_unfiltered = name_list[0].text_content().strip()
+        name = ' '.join(name_unfiltered.split()[:3])
+        if not name.replace(" ","").isalnum():
+            name = ' '.join(name_unfiltered.split()[:2])
+    else:
+        name = 'error'
+    
+    sgpa_list = post_html.xpath("//td[contains(text(), 'SGPA')]/following-sibling::td")
+    if sgpa_list:
+        sgpa_unfiltered = sgpa_list[0].text_content().strip()
+        sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfiltered))
+    elif (name=='error'):
+        sgpa = 'result does not exist'
+    else:
+        sgpa = 'FAIL'
+
+    return name, sgpa
+
+def prepare_headers_dict(token):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3',
         'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -51,6 +65,9 @@ def fill_missing_fields(args, token):
         'Sec-Fetch-Site': 'same-origin',
         'Priority': 'u=0',
     }
+    return headers
+
+def prepare_data_dict(token, roll):
     data = {
         '_token': token,
         'session': 'SE' + args.session,    # '20'
@@ -58,68 +75,49 @@ def fill_missing_fields(args, token):
         'COURSECD': 'C0000' + args.code,   # '37'
         'RESULTTYPE': args.type,           # 'R'
         'p1': '',
-        'ROLLNO': '',               # '23BG310401'
+        'ROLLNO': roll,                    # '23BG310401'
         'SEMCODE': 'SM0' + args.semester,  # '4'
         'all': '',
     }
-    return headers, data
+    return data
 
-def post_response(post_url, session, data):
-    """get the result by submiting the data"""
-    result_response = session.post(post_url, data=data)
-    return result_response
-
-def extract_data(result_response):
-    """extract name and sgpa from the resultant html"""
-    result_html = html.fromstring(result_response.content)
-    
-    name_list = result_html.xpath("//td[contains(text(), 'Name')]/following-sibling::td[2]")
-    if name_list:
-        name_unfiltered = name_list[0].text_content().strip()
-        name = ' '.join(name_unfiltered.split()[:3])
-    else:
-        name = 'error'
-    
-    sgpa_list = result_html.xpath("//td[contains(text(), 'SGPA')]/following-sibling::td")
-    if sgpa_list:
-        sgpa_unfiltered = sgpa_list[0].text_content().strip()
-        sgpa = float(''.join(value if value.isdigit() or value == '.' else '' for value in sgpa_unfiltered))
-    elif (name=='error'):
-        sgpa = 'result does not exist'
-    else:
-        sgpa = 'FAIL'
-
-    return name, sgpa
-
-def prepare_post():
-    """prepare the data for the post requests"""
-    url = 'https://sgbau.ucanapply.com/result-details'
-            
-    args = get_input()
-    session = create_session()
-    input_response = get_response(url, session)
-    token = extract_token(input_response)
-    headers, data = fill_missing_fields(args, token)
-    session.headers.update(headers)
-
-    return session, args, data
-
-def fetch_result(session, args, data):
-    """prints name and sgpa for a given range"""
-    post_url = 'https://sgbau.ucanapply.com/get-result-details'
-
-    start = int(''.join(list(args.start)[-3:]))
-    end = int(''.join(list(args.end)[-3:]))
+def prepare_roll_list():
+    """generates a roll list from start roll to end roll"""
+    roll_list = range(int(''.join(list(args.start)[-3:])), int(''.join(list(args.end)[-3:])) + 1)
     prefix = ''.join(list(args.start)[:7])
-
-    for roll in range(start, end + 1):
-        data['ROLLNO'] = prefix + str(roll)
-        result_response = post_response(post_url, session, data)
-        name, sgpa = extract_data(result_response)
-        print(f'{name} : {sgpa}')
     
-    return None
+    return roll_list, prefix 
+
+async def post_and_parse(session, token, roll):
+    """makes post request and extracts name and sgpa"""
+    data = prepare_data_dict(token, roll)
+    async with session.post(POST_URL, data=data) as post_response:
+        post_response_text = await post_response.text()
+        name, sgpa = extract_name_and_spga(post_response_text)
+        print(f"{name} : {sgpa}")
+
+async def main():
+    """creates the session, extracts token and awaits post_and_parse coroutine object"""
+    async with aiohttp.ClientSession() as session:
+        try:        
+            async with session.get(BASE_URL, raise_for_status=True) as base_response:
+                base_response_text = await base_response.text()
+
+                token = extract_token(base_response_text)
+                roll_list, prefix = prepare_roll_list()
+                session.headers.update(prepare_headers_dict(token))
+
+                coroutines = [(post_and_parse(session, token, prefix + str(suffix))) for suffix in roll_list]
+                await asyncio.gather(*coroutines)
+        
+        except aiohttp.ClientResponseError as e:
+            print(f"HTTP error occurred: {e.status} - {e.message}")
+        
+        except aiohttp.ClientError as e:
+            print(f"Request error occurred: {e}")
 
 if __name__ == '__main__':
-    session, args, data = prepare_post()
-    fetch_result(session, args, data)
+    BASE_URL = "https://sgbau.ucanapply.com/result-details"
+    POST_URL = "https://sgbau.ucanapply.com/get-result-details"
+    args = read_command_line_input()
+    asyncio.run(main())
