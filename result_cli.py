@@ -1,6 +1,7 @@
 from lxml import html
-import argparse, bs4
+import bs4, argparse, json
 import asyncio, aiohttp
+from tqdm.asyncio import tqdm
 
 def read_command_line_input():
     """takes input from command line arguments"""
@@ -81,6 +82,11 @@ def prepare_data_dict(token, roll):
     }
     return data
 
+def save_output_data():
+    with open('result.json', 'w') as file:
+        json.dump(sorted(output_data.items()), file, indent=4)
+    print("\nData saved in the current directory as 'result.json'\n")
+
 def prepare_roll_list():
     """generates a roll list from start roll to end roll"""
     roll_list = range(int(''.join(list(args.start)[-3:])), int(''.join(list(args.end)[-3:])) + 1)
@@ -94,7 +100,7 @@ async def post_and_parse(session, token, roll):
     async with session.post(POST_URL, data=data) as post_response:
         post_response_text = await post_response.text()
         name, sgpa = extract_name_and_spga(post_response_text)
-        print(f"{name} : {sgpa}")
+        output_data[roll] = f"{name} : {sgpa}"
 
 async def main():
     """creates the session, extracts token and awaits post_and_parse coroutine object"""
@@ -107,8 +113,8 @@ async def main():
                 roll_list, prefix = prepare_roll_list()
                 session.headers.update(prepare_headers_dict(token))
 
-                coroutines = [(post_and_parse(session, token, prefix + str(suffix))) for suffix in roll_list]
-                await asyncio.gather(*coroutines)
+                coroutines = [(post_and_parse(session, token, prefix + str(f"{suffix:03d}"))) for suffix in roll_list]
+                await tqdm.gather(*coroutines)
         
         except aiohttp.ClientResponseError as e:
             print(f"HTTP error occurred: {e.status} - {e.message}")
@@ -119,5 +125,11 @@ async def main():
 if __name__ == '__main__':
     BASE_URL = "https://sgbau.ucanapply.com/result-details"
     POST_URL = "https://sgbau.ucanapply.com/get-result-details"
+    
+    output_data = {}
     args = read_command_line_input()
+    
+    print("\nDownloading the requested data...\n")
     asyncio.run(main())
+    
+    save_output_data()
